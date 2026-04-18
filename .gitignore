@@ -1,0 +1,12 @@
+# データベースファイル（Supabaseを使うので不要）
+*.db
+
+# 実行ファイル
+*.exe
+server
+
+# CSVデータ（ローカルで使う用）
+data/*.csv
+
+# 依存関係
+vendor/
