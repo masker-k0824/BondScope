@@ -1,0 +1,189 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <title>BondScope - JGB Yield Curve</title>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <style>
+        body { font-family: 'Segoe UI', sans-serif; display: flex; margin: 0; background: #f0f2f5; }
+        #sidebar { width: 280px; background: #1a2a3a; color: white; height: 100vh; padding: 25px; position: fixed; }
+        #main { margin-left: 280px; flex: 1; padding: 40px; }
+        .card { background: white; padding: 25px; border-radius: 12px; box-shadow: 0 4px 6px rgba(0,0,0,0.05); }
+        h1 { font-size: 1.5rem; color: #4facfe; }
+        label { display: block; margin-top: 15px; font-size: 0.9rem; color: #cbd5e0; }
+        input { width: 100%; padding: 10px; margin: 8px 0 20px; border-radius: 6px; background: #2d3748; color: white; border: none; box-sizing: border-box; }
+        button { width: 100%; padding: 12px; background: #4facfe; color: white; border: none; border-radius: 6px; cursor: pointer; font-weight: bold; }
+        button:hover { background: #00c6ff; }
+        .tab-btn { width: auto; padding: 10px 20px; margin-right: 10px; background: #718096; }
+        .tab-btn.active { background: #4facfe; }
+        table { width:100%; border-collapse: collapse; margin-top: 10px; font-size: 0.9rem; }
+        th, td { padding: 10px; border-bottom: 1px solid #e2e8f0; }
+        th { background: #edf2f7; position: sticky; top: 0; }
+    </style>
+</head>
+<body>
+    <div id="sidebar">
+        <h1>BondScope</h1>
+        <label>開始日</label><input type="date" id="start" value="2026-04-01">
+        <label>終了日</label><input type="date" id="end" value="2026-04-12">
+        <label>表示間隔</label>
+        <select id="interval" onchange="updateChart()">
+        <option value="daily">日次 (全データ)</option>
+        <option value="weekly">週次 (週末のみ)</option>
+        <option value="monthly">月次 (月末のみ)</option>
+</select>
+        <button onclick="updateChart()">データを更新</button>
+    </div>
+
+    <div id="main">
+        <div style="margin-bottom: 20px;">
+            <button onclick="showView('chart')" id="btn-chart" class="tab-btn active">グラフ表示</button>
+            <button onclick="showView('table')" id="btn-table" class="tab-btn">テーブル表示</button>
+        </div>
+
+        <div id="chart-view" class="card">
+            <canvas id="yieldChart"></canvas>
+        </div>
+
+        <div id="table-view" class="card" style="display: none;">
+            <div id="table-container" style="overflow-x: auto; max-height: 70vh;">
+                </div>
+        </div>
+    </div>
+
+    <script>
+    let chart;
+    let rawData = []; // サーバーから取得した生のデータを保持
+
+    // ビュー（グラフ/テーブル）の切り替え
+    function showView(view) {
+        const cv = document.getElementById('chart-view');
+        const tv = document.getElementById('table-view');
+        const btnC = document.getElementById('btn-chart');
+        const btnT = document.getElementById('btn-table');
+
+        if (view === 'chart') {
+            cv.style.display = 'block';
+            tv.style.display = 'none';
+            btnC.classList.add('active');
+            btnT.classList.remove('active');
+        } else {
+            cv.style.display = 'none';
+            tv.style.display = 'block';
+            btnC.classList.remove('active');
+            btnT.classList.add('active');
+        }
+    }
+
+    // データの取得と描画（間引きロジック含む）
+    async function updateChart() {
+        const s = document.getElementById('start').value;
+        const e = document.getElementById('end').value;
+        const interval = document.getElementById('interval').value;
+
+        // 1. APIからデータ取得
+        const res = await fetch(`/api/yield?start=${s}&end=${e}`);
+        rawData = await res.json();
+
+        if (!rawData || rawData.length === 0) {
+            alert("指定期間のデータが見つかりませんでした。");
+            return;
+        }
+
+        renderVisuals();
+    }
+
+    // 取得済みのデータを元に描画処理だけを行う関数
+    function renderVisuals() {
+        const interval = document.getElementById('interval').value;
+        
+        // 全ての日付を抽出
+        const allDates = [...new Set(rawData.map(d => d.Date.split('T')[0]))].sort();
+        let filteredDates = [];
+
+        // 2. リサンプリング（間引き）ロジック
+        if (interval === 'weekly') {
+            // 各週の最後の営業日を抽出
+            filteredDates = allDates.filter((d, i) => {
+                if (i === allDates.length - 1) return true; // 最新日は必ず含める
+                const current = new Date(d);
+                const next = new Date(allDates[i + 1]);
+                // 次のデータの日付が現在の曜日より小さい（＝週を跨いだ）場合に現在のデータを採用
+                return next.getDay() <= current.getDay();
+            });
+        } else if (interval === 'monthly') {
+            // 各月の最終営業日を抽出
+            filteredDates = allDates.filter((d, i) => {
+                if (i === allDates.length - 1) return true;
+                // 月の数字が次のデータと異なる場合、その月の最終データとみなす
+                return d.split('-')[1] !== allDates[i + 1].split('-')[1];
+            });
+        } else {
+            filteredDates = allDates; // daily
+        }
+
+        // 表示対象の日付だけにフィルタリング
+        const displayData = rawData.filter(d => filteredDates.includes(d.Date.split('T')[0]));
+
+        // 3. グラフ・テーブル用のデータ整形
+        const labels = [...new Set(displayData.map(d => d.Tenor))].sort((a, b) => a - b);
+        const dates = [...new Set(displayData.map(d => d.Date.split('T')[0]))];
+
+        // --- グラフ描画 ---
+        const datasets = dates.map((date, i) => {
+            const hue = (360 / Math.max(dates.length, 1)) * i;
+            const color = `hsl(${hue}, 70%, 50%)`;
+            return {
+                label: date,
+                data: labels.map(t => displayData.find(d => d.Date.startsWith(date) && d.Tenor === t)?.Value || null),
+                borderColor: color,
+                backgroundColor: color,
+                tension: 0.3,
+                borderWidth: 2,
+                pointRadius: 2
+            };
+        });
+
+        if (chart) chart.destroy();
+        chart = new Chart(document.getElementById('yieldChart'), {
+            type: 'line',
+            data: { labels: labels.map(l => l + 'Y'), datasets: datasets },
+            options: {
+                responsive: true,
+                plugins: { 
+                    legend: { position: 'bottom', labels: { boxWidth: 12, font: { size: 10 } } } 
+                },
+                scales: { 
+                    y: { title: { display: true, text: '利率 (%)' } },
+                    x: { title: { display: true, text: '年限 (Tenor)' } }
+                }
+            }
+        });
+
+        // --- テーブル描画 ---
+        const container = document.getElementById('table-container');
+        let html = '<table>';
+        html += '<tr><th>基準日</th>';
+        labels.forEach(l => html += `<th>${l}Y</th>`);
+        html += '</tr>';
+
+        dates.forEach(date => {
+            html += `<tr><td><strong>${date}</strong></td>`;
+            labels.forEach(t => {
+                const val = displayData.find(d => d.Date.startsWith(date) && d.Tenor === t)?.Value;
+                html += `<td>${val !== undefined ? val.toFixed(3) : '-'}</td>`;
+            });
+            html += '</tr>';
+        });
+        html += '</table>';
+        container.innerHTML = html;
+    }
+
+    // セレクトボックス変更時にフェッチせず再描画だけ行う（高速化）
+    document.getElementById('interval')?.addEventListener('change', renderVisuals);
+
+    // 初期起動時
+    updateChart();
+</script>
+</body>
+</html>
