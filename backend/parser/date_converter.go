@@ -43,5 +43,5 @@ func ParseJapaneseDate(s string) (time.Time, error) {
 
 	// time.Date を直接使って生成（これが最も安全）
 	// 時刻は 00:00:00、場所はローカル（またはUTC）に設定
-	return time.Date(westernYear, time.Month(month), day, 0, 0, 0, 0, time.Local), nil
+	return time.Date(westernYear, time.Month(month), day, 0, 0, 0, 0, time.UTC), nil
 }
