@@ -23,17 +23,19 @@ func InitDB() (*gorm.DB, error) {
 	// 接続先をコンソールに表示（パスワードは隠れませんので、公開時は注意）
 	fmt.Println("🐘 Connecting to PostgreSQL (Supabase)...")
 
-	// 2. Postgresに接続（sqlite.Open ではなく postgres.Open を使う）
-	db, err := gorm.Open(postgres.Open(dsn), &gorm.Config{})
+	db, err := gorm.Open(postgres.New(postgres.Config{
+		DSN:                  dsn,
+		PreferSimpleProtocol: true,
+	}), &gorm.Config{})
 	if err != nil {
 		return nil, fmt.Errorf("DB接続失敗: %v", err)
 	}
 
-	// 3. テーブルの自動作成
-	// PostgreSQL側に yield_rates テーブルが自動的に作成されます
-	err = db.AutoMigrate(&models.YieldRate{})
-	if err != nil {
-		return nil, fmt.Errorf("マイグレーション失敗: %v", err)
+	if !db.Migrator().HasTable(&models.YieldRate{}) {
+		err = db.AutoMigrate(&models.YieldRate{})
+		if err != nil {
+			return nil, fmt.Errorf("マイグレーション失敗: %v", err)
+		}
 	}
 
 	return db, nil
