@@ -2,12 +2,13 @@ package main
 
 import (
     "bondscope/database"
+    "bondscope/updater"
     "encoding/json"
     "fmt"
     "log"
     "net/http"
     "os"
-    "time" // 1. timeパッケージを追加
+    "time"
 )
 
 func main() {
@@ -44,7 +45,25 @@ func main() {
         json.NewEncoder(w).Encode(rates)
     })
 
-	// 3. フロントエンド配信 (HTML/JavaScriptを直接返す)
+	// 3. バッチ更新エンドポイント
+	http.HandleFunc("/api/update", func(w http.ResponseWriter, r *http.Request) {
+		secret := os.Getenv("UPDATE_SECRET")
+		if secret != "" && r.URL.Query().Get("secret") != secret {
+			http.Error(w, "unauthorized", http.StatusUnauthorized)
+			return
+		}
+
+		n, err := updater.UpdateJGBData(updater.MOFSURL)
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+
+		w.Header().Set("Content-Type", "application/json")
+		fmt.Fprintf(w, `{"status":"ok","records":%d}`, n)
+	})
+
+	// 4. フロントエンド配信 (HTML/JavaScriptを直接返す)
 	// Renderの Root Directory が "backend" なので、
 	// index.html が backend 直下にある前提です。
 	http.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
