@@ -31,6 +31,8 @@ func InitDB() (*gorm.DB, error) {
 		return nil, fmt.Errorf("DB接続失敗: %v", err)
 	}
 
+	// bond_types / bond_master / bond_prices は DDL で手動作成済みのため
+	// YieldRate のみ AutoMigrate で管理する
 	if !db.Migrator().HasTable(&models.YieldRate{}) {
 		err = db.AutoMigrate(&models.YieldRate{})
 		if err != nil {
