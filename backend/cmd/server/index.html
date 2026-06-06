@@ -78,8 +78,17 @@
             <div id="table-container" style="overflow-x: auto; max-height: 70vh;"></div>
         </div>
 
-        <div id="tspread-view" class="card" style="display:none">
-            <canvas id="tspreadChart"></canvas>
+        <div id="tspread-view" style="display:none">
+            <div style="margin-bottom:12px">
+                <button onclick="showTSpreadSubView('chart')" id="btn-ts-chart" class="tab-btn active">グラフ</button>
+                <button onclick="showTSpreadSubView('table')" id="btn-ts-table" class="tab-btn">テーブル</button>
+            </div>
+            <div id="ts-chart-view" class="card">
+                <canvas id="tspreadChart"></canvas>
+            </div>
+            <div id="ts-table-view" class="card" style="display:none">
+                <div id="tspread-table-container" style="overflow-x:auto; max-height:70vh;"></div>
+            </div>
         </div>
     </div>
 
@@ -235,6 +244,13 @@
         renderTSpread(data);
     }
 
+    function showTSpreadSubView(view) {
+        document.getElementById('ts-chart-view').style.display = view === 'chart' ? 'block' : 'none';
+        document.getElementById('ts-table-view').style.display = view === 'table' ? 'block' : 'none';
+        document.getElementById('btn-ts-chart').classList.toggle('active', view === 'chart');
+        document.getElementById('btn-ts-table').classList.toggle('active', view === 'table');
+    }
+
     function renderTSpread(data) {
         const byCode = {};
         data.forEach(d => {
@@ -269,6 +285,25 @@
                 }
             }
         });
+
+        // テーブル描画
+        const dates = [...new Set(data.map(d => d.date))].sort();
+        const bondCodes = Object.keys(byCode);
+        let html = '<table><tr><th>日付</th>';
+        bondCodes.forEach(c => html += `<th style="font-size:0.8rem">${byCode[c].name}</th>`);
+        html += '</tr>';
+        dates.forEach(date => {
+            html += `<tr><td><strong>${date}</strong></td>`;
+            bondCodes.forEach(code => {
+                const pt = byCode[code].points.find(p => p.x === date);
+                const val = pt ? pt.y : null;
+                const color = val === null ? '' : val > 0 ? 'color:#2b6cb0' : 'color:#c53030';
+                html += `<td style="${color}">${val !== null ? val.toFixed(1) + ' bp' : '-'}</td>`;
+            });
+            html += '</tr>';
+        });
+        html += '</table>';
+        document.getElementById('tspread-table-container').innerHTML = html;
     }
 
     document.getElementById('interval').addEventListener('change', renderVisuals);
