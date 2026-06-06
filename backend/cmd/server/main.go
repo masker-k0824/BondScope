@@ -10,13 +10,27 @@ import (
 	"os"
 	"strings"
 	"time"
+
+	"gorm.io/gorm"
 )
 
 func main() {
-	// 1. DB初期化（環境変数 DATABASE_URL を使用）
+	// 1. Supabase接続（JGB金利用）
 	db, err := database.InitDB()
 	if err != nil {
 		log.Fatal(err)
+	}
+
+	// 2. ローカルSQLite接続（JSDAデータ用・著作権上ローカル保存）
+	// Render環境では無効化（RENDER=true が自動セットされる）
+	var localDB *gorm.DB
+	if os.Getenv("RENDER") != "" {
+		log.Println("INFO: Render環境を検出 - JSDA機能を無効化")
+	} else {
+		localDB, err = database.InitLocalDB(updater.LocalDBPath)
+		if err != nil {
+			log.Printf("WARNING: ローカルDB初期化失敗（Tスプレッド機能無効）: %v", err)
+		}
 	}
 
 	// 2. APIエンドポイント (JSONを返す)
@@ -64,9 +78,14 @@ func main() {
 		fmt.Fprintf(w, `{"status":"ok","records":%d}`, n)
 	})
 
-	// JSDA 公社債売買参考統計値の更新
+	// JSDA 公社債売買参考統計値の更新（ローカルSQLiteに保存）
 	// ?date=YYYY-MM-DD で日付指定、省略時は当日
 	http.HandleFunc("/api/update/jsda", func(w http.ResponseWriter, r *http.Request) {
+		if localDB == nil {
+			http.Error(w, "JSDA機能はローカル環境でのみ利用可能です", http.StatusServiceUnavailable)
+			return
+		}
+
 		secret := os.Getenv("UPDATE_SECRET")
 		if secret != "" && r.URL.Query().Get("secret") != secret {
 			http.Error(w, "unauthorized", http.StatusUnauthorized)
@@ -83,7 +102,7 @@ func main() {
 			date = parsed
 		}
 
-		n, err := updater.UpdateJSDAData(date)
+		n, err := updater.UpdateJSDAData(localDB, date)
 		if err != nil {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 			return
@@ -93,10 +112,15 @@ func main() {
 		fmt.Fprintf(w, `{"status":"ok","date":"%s","records":%d}`, date.Format("2006-01-02"), n)
 	})
 
-	// GET /api/bonds?type_id=4  銘柄一覧（省略時全件）
+	// GET /api/bonds?type_id=4  銘柄一覧（ローカル専用）
 	http.HandleFunc("/api/bonds", func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Access-Control-Allow-Origin", "*")
 		w.Header().Set("Content-Type", "application/json")
+
+		if localDB == nil {
+			http.Error(w, "JSDA機能はローカル環境でのみ利用可能です", http.StatusServiceUnavailable)
+			return
+		}
 
 		var typeID int16
 		if s := r.URL.Query().Get("type_id"); s != "" {
@@ -108,7 +132,7 @@ func main() {
 			typeID = int16(id)
 		}
 
-		bonds, err := database.GetBondList(db, typeID)
+		bonds, err := database.GetBondList(localDB, typeID)
 		if err != nil {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 			return
@@ -117,10 +141,15 @@ func main() {
 	})
 
 	// GET /api/tspread?codes=040001234,040002345&start=2025-01-01&end=2026-05-29
-	// Tスプレッド（複利利回り - JGB補間利回り）を返す。単位は%ポイント。
+	// Tスプレッド（複利利回り - JGB補間利回り）を返す。単位は%ポイント。ローカル専用。
 	http.HandleFunc("/api/tspread", func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Access-Control-Allow-Origin", "*")
 		w.Header().Set("Content-Type", "application/json")
+
+		if localDB == nil {
+			http.Error(w, "JSDA機能はローカル環境でのみ利用可能です", http.StatusServiceUnavailable)
+			return
+		}
 
 		start := r.URL.Query().Get("start")
 		end := r.URL.Query().Get("end")
@@ -134,7 +163,7 @@ func main() {
 			codes = strings.Split(s, ",")
 		}
 
-		bondPrices, err := database.GetBondsForTSpread(db, codes, start, end)
+		bondPrices, err := database.GetBondsForTSpread(localDB, codes, start, end)
 		if err != nil {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 			return

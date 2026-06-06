@@ -16,6 +16,9 @@ import (
 	"gorm.io/gorm"
 )
 
+// LocalDBPath はJSDAデータを保存するローカルSQLiteファイルのパス。
+const LocalDBPath = "data/jsda.db"
+
 // col2ToTypeID maps JSDA 銘柄種別コード → bond_types.type_id
 // 変動利付・短期は除外（複利=999.999 でフィルタされる）
 var col2ToTypeID = map[int]int16{
@@ -34,28 +37,20 @@ func JSDADataURL(date time.Time) string {
 }
 
 // UpdateJSDADataFromFile はローカルファイルから JSDA データをインポートする（テスト・バックフィル用）。
-func UpdateJSDADataFromFile(path string, date time.Time) (int, error) {
-	db, err := database.InitDB()
-	if err != nil {
-		return 0, fmt.Errorf("DB init: %w", err)
-	}
-
+// localDB にはローカルSQLite接続を渡す（database.InitLocalDB で取得）。
+func UpdateJSDADataFromFile(localDB *gorm.DB, path string, date time.Time) (int, error) {
 	f, err := os.Open(path)
 	if err != nil {
 		return 0, fmt.Errorf("open %s: %w", path, err)
 	}
 	defer f.Close()
 
-	return upsertJSDA(db, f, date)
+	return upsertJSDA(localDB, f, date)
 }
 
 // UpdateJSDAData は指定日の JSDA CSV を取得し bond_master + bond_prices を upsert する。
-func UpdateJSDAData(date time.Time) (int, error) {
-	db, err := database.InitDB()
-	if err != nil {
-		return 0, fmt.Errorf("DB init: %w", err)
-	}
-
+// localDB にはローカルSQLite接続を渡す（database.InitLocalDB で取得）。
+func UpdateJSDAData(localDB *gorm.DB, date time.Time) (int, error) {
 	url := JSDADataURL(date)
 	fmt.Printf("Fetching JSDA CSV: %s\n", url)
 
@@ -68,8 +63,9 @@ func UpdateJSDAData(date time.Time) (int, error) {
 		return 0, fmt.Errorf("JSDA HTTP %s", resp.Status)
 	}
 
-	return upsertJSDA(db, resp.Body, date)
+	return upsertJSDA(localDB, resp.Body, date)
 }
+
 
 func upsertJSDA(db *gorm.DB, r io.Reader, date time.Time) (int, error) {
 	// 時刻部分を切り捨てて純粋な日付にする

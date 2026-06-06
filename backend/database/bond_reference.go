@@ -136,16 +136,16 @@ func InterpolateJGB(tenors []float64, yields []float64, target float64) float64 
 }
 
 // DownsampleToMonthly は指定日より古いデータを月末の1点に間引く。
-// 週次バッチで呼び出す想定（古いデータの肥大化防止）。
+// SQLite の strftime を使用（PostgreSQL の DATE_TRUNC は不使用）。
 func DownsampleToMonthly(db *gorm.DB, olderThan time.Time) (int64, error) {
 	result := db.Exec(`
 		DELETE FROM bond_prices
 		WHERE date < ?
-		  AND (date, bond_id) NOT IN (
-		      SELECT MAX(date), bond_id
+		  AND rowid NOT IN (
+		      SELECT MAX(rowid)
 		      FROM bond_prices
 		      WHERE date < ?
-		      GROUP BY DATE_TRUNC('month', date), bond_id
+		      GROUP BY strftime('%Y-%m', date), bond_id
 		  )
 	`, olderThan, olderThan)
 	return result.RowsAffected, result.Error
