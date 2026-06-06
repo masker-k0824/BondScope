@@ -6,8 +6,9 @@
 # server ← これを消して、下の行のように具体的に書く
 backend/cmd/server/server
 
-# CSVデータ（ローカルで使う用）
+# データファイル（ローカルで使う用）
 data/*.csv
+data/*.xlsx
 
 # 依存関係
 vendor/

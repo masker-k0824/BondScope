@@ -1,14 +1,15 @@
 package main
 
 import (
-    "bondscope/database"
-    "bondscope/updater"
-    "encoding/json"
-    "fmt"
-    "log"
-    "net/http"
-    "os"
-    "time"
+	"bondscope/database"
+	"bondscope/updater"
+	"encoding/json"
+	"fmt"
+	"log"
+	"net/http"
+	"os"
+	"strings"
+	"time"
 )
 
 func main() {
@@ -113,6 +114,63 @@ func main() {
 			return
 		}
 		json.NewEncoder(w).Encode(bonds)
+	})
+
+	// GET /api/tspread?codes=040001234,040002345&start=2025-01-01&end=2026-05-29
+	// Tスプレッド（複利利回り - JGB補間利回り）を返す。単位は%ポイント。
+	http.HandleFunc("/api/tspread", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Access-Control-Allow-Origin", "*")
+		w.Header().Set("Content-Type", "application/json")
+
+		start := r.URL.Query().Get("start")
+		end := r.URL.Query().Get("end")
+		if start == "" || end == "" {
+			http.Error(w, "start and end are required", http.StatusBadRequest)
+			return
+		}
+
+		var codes []string
+		if s := r.URL.Query().Get("codes"); s != "" {
+			codes = strings.Split(s, ",")
+		}
+
+		bondPrices, err := database.GetBondsForTSpread(db, codes, start, end)
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+
+		yieldRates, err := database.GetYieldRates(db, start, end)
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+
+		// 日付ごとに tenor→yield のスライスを構築（GetYieldRatesはtenor昇順で返す）
+		type yp struct{ tenor, yield float64 }
+		yieldByDate := make(map[string][]yp, len(yieldRates))
+		for _, yr := range yieldRates {
+			d := yr.Date.Format("2006-01-02")
+			yieldByDate[d] = append(yieldByDate[d], yp{yr.Tenor, yr.Value})
+		}
+
+		for i, bp := range bondPrices {
+			pts := yieldByDate[bp.Date]
+			if len(pts) == 0 {
+				continue
+			}
+			tenors := make([]float64, len(pts))
+			yields := make([]float64, len(pts))
+			for j, p := range pts {
+				tenors[j] = p.tenor
+				yields[j] = p.yield
+			}
+			jgb := database.InterpolateJGB(tenors, yields, float64(bp.RemainingTerm))
+			bondPrices[i].JGBYield = jgb
+			bondPrices[i].TSpread = float64(bp.CompoundYield) - jgb
+		}
+
+		json.NewEncoder(w).Encode(bondPrices)
 	})
 
 	// 4. フロントエンド配信 (HTML/JavaScriptを直接返す)
