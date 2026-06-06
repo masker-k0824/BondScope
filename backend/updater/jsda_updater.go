@@ -29,8 +29,8 @@ var col2ToTypeID = map[int]int16{
 // JSDADataURL は指定日の JSDA 公社債売買参考統計値 CSV の URL を返す。
 // ファイル名パターン: S{YYMMDD}.csv（例: S260529.csv = 2026-05-29）
 func JSDADataURL(date time.Time) string {
-	return fmt.Sprintf("https://www.jsda.or.jp/shiryoshitsu/toukei/baisan/data/S%s.csv",
-		date.Format("060102"))
+	return fmt.Sprintf("https://market.jsda.or.jp/shijyo/saiken/baibai/baisanchi/files/%s/S%s.csv",
+		date.Format("2006"), date.Format("060102"))
 }
 
 // UpdateJSDADataFromFile はローカルファイルから JSDA データをインポートする（テスト・バックフィル用）。
