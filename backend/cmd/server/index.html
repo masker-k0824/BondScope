@@ -31,8 +31,8 @@
 <body>
     <div id="sidebar">
         <h1>BondScope</h1>
-        <label>開始日</label><input type="date" id="start" value="2026-04-01">
-        <label>終了日</label><input type="date" id="end" value="2026-05-29">
+        <label>開始日</label><input type="date" id="start">
+        <label>終了日</label><input type="date" id="end">
 
         <div id="jgb-controls">
             <label>表示間隔</label>
@@ -65,13 +65,18 @@
 
     <div id="main">
         <div style="margin-bottom: 20px;">
-            <button onclick="showView('chart')" id="btn-chart" class="tab-btn active">グラフ表示</button>
+            <button onclick="showView('chart')" id="btn-chart" class="tab-btn active">イールドカーブ</button>
+            <button onclick="showView('timeseries')" id="btn-timeseries" class="tab-btn">時系列</button>
             <button onclick="showView('table')" id="btn-table" class="tab-btn">テーブル表示</button>
             <button onclick="showView('tspread')" id="btn-tspread" class="tab-btn">Tスプレッド</button>
         </div>
 
         <div id="chart-view" class="card">
             <canvas id="yieldChart"></canvas>
+        </div>
+
+        <div id="timeseries-view" class="card" style="display:none">
+            <canvas id="timeseriesChart"></canvas>
         </div>
 
         <div id="table-view" class="card" style="display:none">
@@ -93,7 +98,14 @@
     </div>
 
     <script>
-    let chart, tspreadChart;
+    const today = new Date();
+    const oneWeekAgo = new Date(today);
+    oneWeekAgo.setDate(today.getDate() - 7);
+    const fmt = d => d.toISOString().split('T')[0];
+    document.getElementById('end').value = fmt(today);
+    document.getElementById('start').value = fmt(oneWeekAgo);
+
+    let chart, tspreadChart, timeseriesChart;
     let rawData = [];
     let bondData = [];
     let selectedCodes = new Set();
@@ -101,7 +113,7 @@
 
     function showView(view) {
         activeView = view;
-        ['chart', 'table', 'tspread'].forEach(v => {
+        ['chart', 'timeseries', 'table', 'tspread'].forEach(v => {
             document.getElementById(v + '-view').style.display = v === view ? 'block' : 'none';
             document.getElementById('btn-' + v).classList.toggle('active', v === view);
         });
@@ -110,6 +122,9 @@
 
         if (view === 'tspread' && bondData.length === 0) {
             loadBondList();
+        }
+        if (view === 'timeseries') {
+            renderTimeSeries();
         }
     }
 
@@ -130,6 +145,42 @@
         rawData = await res.json();
         if (!rawData || rawData.length === 0) { alert('指定期間のデータが見つかりませんでした。'); return; }
         renderVisuals();
+        renderTimeSeries();
+    }
+
+    function renderTimeSeries() {
+        if (!rawData || rawData.length === 0) return;
+
+        const tenors = [...new Set(rawData.map(d => d.Tenor))].sort((a, b) => a - b);
+        const dates = [...new Set(rawData.map(d => d.Date.split('T')[0]))].sort();
+
+        const datasets = tenors.map((tenor, i) => {
+            const color = `hsl(${(360 / Math.max(tenors.length, 1)) * i}, 70%, 50%)`;
+            return {
+                label: tenor + 'Y',
+                data: dates.map(date => {
+                    const val = rawData.find(d => d.Date.startsWith(date) && d.Tenor === tenor)?.Value;
+                    return val != null ? { x: date, y: val } : null;
+                }).filter(v => v !== null),
+                borderColor: color, backgroundColor: color,
+                tension: 0.2, borderWidth: 2, pointRadius: 1
+            };
+        });
+
+        if (timeseriesChart) timeseriesChart.destroy();
+        timeseriesChart = new Chart(document.getElementById('timeseriesChart'), {
+            type: 'line', data: { datasets },
+            options: {
+                responsive: true,
+                plugins: {
+                    legend: { position: 'bottom', labels: { boxWidth: 12, font: { size: 10 } } }
+                },
+                scales: {
+                    y: { title: { display: true, text: '利率 (%)' } },
+                    x: { title: { display: true, text: '日付' }, ticks: { maxTicksLimit: 12 } }
+                }
+            }
+        });
     }
 
     function renderVisuals() {
