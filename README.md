@@ -3,7 +3,7 @@
 公社債の利回りと T スプレッドをブラウザで手軽に確認するための個人ツール。
 JSDA データの著作権制約を考慮した設計が特徴です。
 
-**デモ（Render）:** `https://<your-render-url>` ← 後で入れる
+**デモ（Render）:** `https://<your-render-url>` 
 
 ## 機能
 
